@@ -1,1 +1,53 @@
+import os
+from telegram import Update, ChatPermissions
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from datetime import datetime, timedelta
 
+TOKEN = os.environ.get("TOKEN")
+
+user_messages = {}
+
+MESSAGE_LIMIT = 10
+TIME_WINDOW = 5
+MUTE_DURATION = 5
+
+async def monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
+        return
+
+    user_id = update.message.from_user.id
+    username = update.message.from_user.username
+    chat_id = update.message.chat_id
+    now = datetime.now()
+
+    if user_id not in user_messages:
+        user_messages[user_id] = []
+
+    user_messages[user_id] = [
+        t for t in user_messages[user_id]
+        if now - t < timedelta(minutes=TIME_WINDOW)
+    ]
+
+    user_messages[user_id].append(now)
+
+    if len(user_messages[user_id]) > MESSAGE_LIMIT:
+        until = now + timedelta(minutes=MUTE_DURATION)
+
+        await context.bot.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            permissions=ChatPermissions(can_send_messages=False),
+            until_date=until
+        )
+
+        await update.message.reply_text(
+            f"@{username} به خاطر اسپم برای {MUTE_DURATION} دقیقه mute شد! 🔇"
+        )
+
+        user_messages[user_id] = []
+
+app = ApplicationBuilder().token(TOKEN).build()
+app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, monitor))
+
+print("ربات ضد اسپم روشنه...")
+app.run_polling()
